@@ -1,0 +1,391 @@
+#include <iostream>
+#include <vector>
+#include <string>
+#include <iomanip>
+#include <cmath>
+#include <limits>
+#include <algorithm>
+#include <sstream>
+
+using namespace std;
+
+// Константы для анализа (лекция 2: использование констант)
+const double REVENUE_CHANGE_START = -50.0;
+const double REVENUE_CHANGE_END = 50.0;
+const double REVENUE_CHANGE_STEP = 10.0;
+const double RATE_CHANGE_RANGE = 5.0;
+const double BREAK_EVEN_PRECISION = 0.001; // Точность для поиска точки безубыточности
+
+// Структуры данных для группировки информации (лекция 5: составные типы данных)
+struct InputData {
+    double investment;          // Инвестиции
+    double annual_cash_flow;    // Годовой денежный поток
+    int project_years;          // Срок проекта в годах
+    double discount_rate;       // Ставка дисконтирования в %
+};
+
+struct SensitivityResult {
+    string parameter_name;      // Название параметра
+    double change_percent;      // Изменение параметра в %
+    double npv;                 // Рассчитанный NPV
+    double npv_change;          // Изменение NPV в %
+};
+
+struct AnalysisResult {
+    double npv;                 // Базовый NPV
+    double break_even_revenue;  // Точка безубыточности по выручке в %
+    string most_sensitive_param; // Наиболее чувствительный параметр
+};
+
+// Прототипы функций (лекция 4: объявление функций)
+void show_main_menu();
+void run_analysis();
+InputData get_input_data();
+bool validate_input(const InputData& data);
+double calculate_npv(double investment, double cash_flow, 
+                     int years, double rate_percent);
+vector<SensitivityResult> analyze_revenue_sensitivity(const InputData& data, 
+                                                      double base_npv);
+vector<SensitivityResult> analyze_rate_sensitivity(const InputData& data, 
+                                                   double base_npv);
+double find_break_even_point(const InputData& data);
+string determine_most_sensitive_param(const vector<SensitivityResult>& revenue_results,
+                                      const vector<SensitivityResult>& rate_results);
+void print_results(const AnalysisResult& result, const InputData& input);
+void run_tests();
+
+int main() {
+    int choice;
+    
+    // Главный цикл программы (лекция 3: циклы)
+    while (true) {
+        show_main_menu();
+        
+        if (cin >> choice) {
+            switch (choice) {  // лекция 3: оператор switch
+                case 1:
+                    run_analysis();
+                    break;
+                case 2:
+                    run_tests();
+                    break;
+                case 3:
+                    cout << "\nПрограмма завершена.\n";
+                    return 0;
+                default:
+                    cout << "Ошибка: выберите пункт от 1 до 3\n";
+            }
+        } else {
+            cout << "Ошибка: некорректный ввод\n";
+            cin.clear();
+            cin.ignore(numeric_limits<streamsize>::max(), '\n');
+        }
+    }
+    return 0;
+}
+
+// Функция отображения главного меню
+void show_main_menu() {
+    cout << "\n" << string(50, '=') << "\n";
+    cout << "АНАЛИЗ ЧУВСТВИТЕЛЬНОСТИ ИНВЕСТИЦИОННОГО ПРОЕКТА\n";
+    cout << string(50, '=') << "\n";
+    cout << "1. Провести анализ\n";
+    cout << "2. Запустить тесты\n";
+    cout << "3. Выход\n";
+    cout << string(50, '-') << "\n";
+    cout << "Выберите действие (1-3): ";
+}
+
+// Основная функция анализа
+void run_analysis() {
+    cout << "\n=== ВВОД ДАННЫХ ===\n";
+    
+    // Получение входных данных
+    InputData input = get_input_data();
+    
+    // Проверка корректности данных
+    if (!validate_input(input)) {
+        cout << "Ошибка: введены некорректные данные\n";
+        return;
+    }
+    
+    // Расчёт базового NPV
+    double base_npv = calculate_npv(input.investment, input.annual_cash_flow,
+                                   input.project_years, input.discount_rate);
+    
+    // Анализ чувствительности по выручке
+    vector<SensitivityResult> revenue_results = analyze_revenue_sensitivity(input, base_npv);
+    
+    // Анализ чувствительности по ставке
+    vector<SensitivityResult> rate_results = analyze_rate_sensitivity(input, base_npv);
+    
+    // Поиск точки безубыточности
+    double break_even = find_break_even_point(input);
+    
+    // Определение наиболее чувствительного параметра
+    string most_sensitive = determine_most_sensitive_param(revenue_results, rate_results);
+    
+    // Формирование итогового результата
+    AnalysisResult result;
+    result.npv = base_npv;
+    result.break_even_revenue = break_even;
+    result.most_sensitive_param = most_sensitive;
+    
+    // Вывод результатов
+    print_results(result, input);
+}
+
+// Функция получения входных данных (лекция 2: ввод-вывод)
+InputData get_input_data() {
+    InputData data;
+    
+    cout << "Введите инвестиции (от 0.01 до 10^12): ";
+    while (!(cin >> data.investment) || data.investment < 0.01) {
+        cout << "Ошибка: введите число >= 0.01: ";
+        cin.clear();
+        cin.ignore(numeric_limits<streamsize>::max(), '\n');
+    }
+    
+    cout << "Введите годовой денежный поток (от -10^12 до 10^12): ";
+    while (!(cin >> data.annual_cash_flow)) {
+        cout << "Ошибка: введите число: ";
+        cin.clear();
+        cin.ignore(numeric_limits<streamsize>::max(), '\n');
+    }
+    
+    cout << "Введите срок проекта (от 1 до 100 лет): ";
+    while (!(cin >> data.project_years) || data.project_years < 1 || data.project_years > 100) {
+        cout << "Ошибка: введите целое число от 1 до 100: ";
+        cin.clear();
+        cin.ignore(numeric_limits<streamsize>::max(), '\n');
+    }
+    
+    cout << "Введите ставку дисконтирования в % (от 0.01 до 100): ";
+    while (!(cin >> data.discount_rate) || data.discount_rate < 0.01 || data.discount_rate > 100) {
+        cout << "Ошибка: введите число от 0.01 до 100: ";
+        cin.clear();
+        cin.ignore(numeric_limits<streamsize>::max(), '\n');
+    }
+    
+    return data;
+}
+
+// Валидация входных данных
+bool validate_input(const InputData& data) {
+    if (data.investment < 0.01 || data.investment > 1e12) return false;
+    if (data.annual_cash_flow < -1e12 || data.annual_cash_flow > 1e12) return false;
+    if (data.project_years < 1 || data.project_years > 100) return false;
+    if (data.discount_rate < 0.01 || data.discount_rate > 100.0) return false;
+    return true;
+}
+
+// Функция расчёта NPV (лекция 4: функции с возвращаемым значением)
+double calculate_npv(double investment, double cash_flow, 
+                     int years, double rate_percent) {
+    double npv = -investment;
+    double rate = rate_percent / 100.0;  // Преобразование % в десятичную дробь
+    
+    for (int year = 1; year <= years; year++) {  // лекция 3: цикл for
+        double discount_factor = pow(1.0 + rate, year);
+        npv += cash_flow / discount_factor;
+    }
+    
+    return npv;
+}
+
+// Анализ чувствительности по выручке
+vector<SensitivityResult> analyze_revenue_sensitivity(const InputData& data, 
+                                                      double base_npv) {
+    vector<SensitivityResult> results;
+    
+    // лекция 3: цикл for с вещественным шагом
+    for (double change = REVENUE_CHANGE_START; 
+         change <= REVENUE_CHANGE_END + 0.0001; 
+         change += REVENUE_CHANGE_STEP) {
+        
+        double multiplier = 1.0 + change / 100.0;
+        double adjusted_cash_flow = data.annual_cash_flow * multiplier;
+        double npv = calculate_npv(data.investment, adjusted_cash_flow,
+                                  data.project_years, data.discount_rate);
+        
+        SensitivityResult result;
+        result.parameter_name = "выручка";
+        result.change_percent = change;
+        result.npv = npv;
+        result.npv_change = (npv - base_npv) / abs(base_npv) * 100.0;
+        
+        results.push_back(result);  // лекция 5: работа с vector
+    }
+    
+    return results;
+}
+
+// Анализ чувствительности по ставке дисконтирования
+vector<SensitivityResult> analyze_rate_sensitivity(const InputData& data, 
+                                                   double base_npv) {
+    vector<SensitivityResult> results;
+    
+    for (double change = -RATE_CHANGE_RANGE; 
+         change <= RATE_CHANGE_RANGE + 0.0001; 
+         change += RATE_CHANGE_RANGE) {
+        
+        double new_rate = data.discount_rate + change;
+        if (new_rate < 0.01) new_rate = 0.01;
+        if (new_rate > 100.0) new_rate = 100.0;
+        
+        double npv = calculate_npv(data.investment, data.annual_cash_flow,
+                                  data.project_years, new_rate);
+        
+        SensitivityResult result;
+        result.parameter_name = "ставка дисконтирования";
+        result.change_percent = change;
+        result.npv = npv;
+        result.npv_change = (npv - base_npv) / abs(base_npv) * 100.0;
+        
+        results.push_back(result);
+    }
+    
+    return results;
+}
+
+// Поиск точки безубыточности по выручке (метод бисекции)
+double find_break_even_point(const InputData& data) {
+    double left = -100.0;    // -100% изменения
+    double right = 100.0;    // +100% изменения
+    double mid;
+    
+    // Поиск методом бисекции
+    for (int i = 0; i < 50; i++) {  // ограничение итераций
+        mid = (left + right) / 2.0;
+        double multiplier = 1.0 + mid / 100.0;
+        double cash_flow = data.annual_cash_flow * multiplier;
+        double npv = calculate_npv(data.investment, cash_flow,
+                                  data.project_years, data.discount_rate);
+        
+        if (abs(npv) < BREAK_EVEN_PRECISION) {
+            return mid;
+        }
+        
+        if (npv > 0) {
+            right = mid;
+        } else {
+            left = mid;
+        }
+    }
+    
+    return mid;  // приблизительная точка безубыточности
+}
+
+// Определение наиболее чувствительного параметра
+string determine_most_sensitive_param(const vector<SensitivityResult>& revenue_results,
+                                      const vector<SensitivityResult>& rate_results) {
+    if (revenue_results.empty() || rate_results.empty()) {
+        return "выручка";  // значение по умолчанию
+    }
+    
+    // Поиск максимального изменения NPV для выручки
+    double max_revenue_change = 0.0;
+    for (const auto& result : revenue_results) {
+        if (abs(result.npv_change) > abs(max_revenue_change)) {
+            max_revenue_change = result.npv_change;
+        }
+    }
+    
+    // Поиск максимального изменения NPV для ставки
+    double max_rate_change = 0.0;
+    for (const auto& result : rate_results) {
+        if (abs(result.npv_change) > abs(max_rate_change)) {
+            max_rate_change = result.npv_change;
+        }
+    }
+    
+    // Сравнение абсолютных значений изменений
+    if (abs(max_revenue_change) > abs(max_rate_change)) {
+        return "выручка";
+    } else {
+        return "ставка дисконтирования";
+    }
+}
+
+// Вывод результатов в требуемом формате
+void print_results(const AnalysisResult& result, const InputData& input) {
+    cout << "\n=== РЕЗУЛЬТАТЫ АНАЛИЗА ===\n";
+    
+    // Форматированный вывод (лекция 8: форматирование вывода)
+    cout << fixed << setprecision(0);
+    cout << "Исходные данные:\n";
+    cout << "  Инвестиции: " << input.investment << " руб.\n";
+    cout << "  Годовой поток: " << input.annual_cash_flow << " руб.\n";
+    cout << "  Срок: " << input.project_years << " лет\n";
+    cout << "  Ставка: " << input.discount_rate << "%\n\n";
+    
+    // Вывод в формате из аннотации
+    cout << "Выходные значения:\n";
+    cout << "  NPV: " << result.npv << "\n";
+    
+    // Форматирование точки безубыточности
+    cout << "  Точка безубыточности по выручке: ";
+    if (result.break_even_revenue >= 0) {
+        cout << "+";
+    }
+    cout << result.break_even_revenue << "%\n";
+    
+    cout << "  Наиболее чувствительный параметр: " << result.most_sensitive_param << "\n";
+    
+    // Дополнительная информация
+    cout << "\nИнтерпретация:\n";
+    if (result.npv > 0) {
+        cout << "  Проект эффективен (NPV > 0)\n";
+    } else {
+        cout << "  Проект неэффективен (NPV < 0)\n";
+    }
+    
+    if (abs(result.break_even_revenue) < 20.0) {
+        cout << "  Проект умеренно устойчив\n";
+    } else {
+        cout << "  Проект требует внимания к точности прогнозов\n";
+    }
+}
+
+// Функция тестирования (лекция 6: тестирование)
+void run_tests() {
+    cout << "\n=== ЗАПУСК ТЕСТОВ ===\n";
+    
+    // Тест 1: Пример из аннотации
+    cout << "\nТест 1 (пример из аннотации):\n";
+    InputData test1;
+    test1.investment = 100000;
+    test1.annual_cash_flow = 25000;
+    test1.project_years = 5;
+    test1.discount_rate = 10.0;
+    
+    double npv1 = calculate_npv(test1.investment, test1.annual_cash_flow,
+                               test1.project_years, test1.discount_rate);
+    cout << "  NPV: " << npv1 << " (ожидается ~ -5252)\n";
+    
+    // Тест 2: Второй пример из аннотации
+    cout << "\nТест 2 (второй пример):\n";
+    InputData test2;
+    test2.investment = 500000;
+    test2.annual_cash_flow = 120000;
+    test2.project_years = 7;
+    test2.discount_rate = 8.0;
+    
+    double npv2 = calculate_npv(test2.investment, test2.annual_cash_flow,
+                               test2.project_years, test2.discount_rate);
+    cout << "  NPV: " << npv2 << " (ожидается ~ 149073)\n";
+    
+    // Тест 3: Граничные значения
+    cout << "\nТест 3 (граничные значения):\n";
+    InputData test3;
+    test3.investment = 0.01;
+    test3.annual_cash_flow = 1.0;
+    test3.project_years = 1;
+    test3.discount_rate = 0.01;
+    
+    if (validate_input(test3)) {
+        cout << "  Валидация минимальных значений: ПРОШЛА\n";
+    }
+    
+    cout << "\nВсе тесты завершены.\n";
+}
